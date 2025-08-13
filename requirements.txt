@@ -1,0 +1,11 @@
+langchain
+langchain-community
+pypdf
+tiktoken
+faiss-cpu
+google-generativeai
+langchain_google_genai
+langchain-chroma
+dotenv
+tiktoken
+python-dotenv

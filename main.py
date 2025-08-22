@@ -37,6 +37,10 @@ import streamlit as st
 from vector_store import get_vector_store
 import config
 from langchain_core.prompts import PromptTemplate
+from langchain.retrievers.contextual_compression import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import LLMChainExtractor
+from langchain.retrievers.multi_query import MultiQueryRetriever
+
 
 # Page config
 st.set_page_config(
@@ -163,13 +167,13 @@ with st.sidebar:
     with col1:
         st.markdown(f"""
         <div class="stat-box">
-            <div class="stat-number">{len(st.session_state.get('messages', []))}</div>
+            <div class="stat-number">{len(st.session_state.get('messages', []))+1}</div>
             <div class="stat-label">Total Messages</div>
         </div>
         """, unsafe_allow_html=True)
     
     with col2:
-        user_messages = len([msg for msg in st.session_state.get('messages', []) if msg['role'] == 'user'])
+        user_messages = len([msg for msg in st.session_state.get('messages', []) if msg['role'] == 'user'])+1
         st.markdown(f"""
         <div class="stat-box">
             <div class="stat-number">{user_messages}</div>
@@ -247,28 +251,76 @@ if user_question := st.chat_input("💭 Type your question here..."):
             
             # Load retriever + LLM
             vector_store = get_vector_store()
-            retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+            # retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
             llm = config.llm
 
+            # Add contextual compression
+            # base_retriever = vector_store.as_retriever(search_kwargs={"k": 1})
+            # compressor = LLMChainExtractor.from_llm(llm)
+            # retriever = ContextualCompressionRetriever(         
+            #     base_retriever=base_retriever,
+            #     base_compressor=compressor
+            # )
+
+            # Multi Query Retriever
+
+            retriever = MultiQueryRetriever.from_llm(
+            retriever=vector_store.as_retriever(search_kwargs={"k": 3}),
+            llm=llm
+            )
+
+
             # Prompt
+            # prompt = PromptTemplate(
+            #     template="""
+            #       You are a helpful assistant.
+            #       Answer ONLY from the provided transcript context.
+            #       If the context is insufficient, just say you don't know.
+
+            #       {context}
+            #       Question: {question}
+            #     """,
+            #     input_variables=['context', 'question']
+            # )
             prompt = PromptTemplate(
                 template="""
                   You are a helpful assistant.
+                  Use the conversation history and the provided document context to answer.
                   Answer ONLY from the provided transcript context.
                   If the context is insufficient, just say you don't know.
 
+                  Conversation so far:
+                  {chat_history}
+
+                  Context from documents:
                   {context}
-                  Question: {question}
+
+                  Now answer the latest question:
+                  {question}
                 """,
-                input_variables=['context', 'question']
+                input_variables=['chat_history', 'context', 'question']
             )
+
+            # Build chat history string
+            chat_history = ""
+            for msg in st.session_state["messages"]:
+                role = "User" if msg["role"] == "user" else "Assistant"
+                chat_history += f"{role}: {msg['content']}\n"
+
+
 
             # Retrieve docs
             retrieved_docs = retriever.invoke(user_question)
             context_text = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
             # Final prompt
-            final_prompt = prompt.invoke({"context": context_text, "question": user_question})
+            # final_prompt = prompt.invoke({"context": context_text, "question": user_question})
+            final_prompt = prompt.invoke({
+                "chat_history": chat_history,
+                "context": context_text,
+                "question": user_question
+            })
+
 
             # Get answer
             answer = llm.invoke(final_prompt)

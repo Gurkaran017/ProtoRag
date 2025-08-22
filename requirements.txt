@@ -9,3 +9,4 @@ langchain-chroma
 dotenv
 tiktoken
 python-dotenv
+langchain-experimental
